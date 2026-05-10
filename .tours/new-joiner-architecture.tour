@@ -1,0 +1,77 @@
+{
+  "$schema": "https://aka.ms/codetour-schema",
+  "title": "AI News Channel — Архитектура системы / New Joiner",
+  "description": "Для тех, кто впервые смотрит на проект. Проведёт от точки входа до публикации поста в Telegram: как данные поступают с HackerNews, фильтруются, превращаются в текст и отправляются на ревью.",
+  "steps": [
+    {
+      "directory": "src",
+      "title": "Карта проекта",
+      "description": "Система состоит из пяти слоёв:\n\n- `agents/` — пять специализированных агентов (scraper, analyzer, publisher, coordinator, tester)\n- `generator/` — генерация текста через Groq LLM\n- `database/` — клиент Supabase и Pydantic-модели\n- `scheduler/` — APScheduler для периодических задач\n- `main.py` — точка входа: Telegram-бот + регистрация команд\n\nДанные текут в одну сторону: HN → raw_tweets → posts → Telegram."
+    },
+    {
+      "file": "src/main.py",
+      "line": 53,
+      "title": "Старт: post_init восстанавливает состояние",
+      "description": "**Situation:** `post_init` вызывается один раз при запуске бота.\n\n**Mechanism:** Здесь стартует APScheduler, восстанавливаются отложенные посты (`waiting_publish`) из Supabase, и запускается автотест.\n\n**Implication:** Если бот перезапустился, все запланированные публикации не теряются — они читаются из БД и пересоздаются как `DateTrigger`-задачи.\n\n**Gotcha:** `drafts` (черновики, ещё не одобренные пользователем) живут только в памяти (`bot_data`). При перезапуске они исчезают — это известное ограничение."
+    },
+    {
+      "file": "src/main.py",
+      "line": 255,
+      "title": "Команда /post запускает весь pipeline",
+      "description": "**Situation:** Пользователь пишет `/post` или `/post deep_dive OpenAI`.\n\n**Mechanism:** Парсим аргументы: первый может быть типом поста (`news_digest`, `deep_dive`...), остальные — тегами для целевого поиска. Если тегов нет — берём стандартные topics.json.\n\n**Implication:** `/post RAG` запустит scraping по тегу RAG на HackerNews и сгенерирует пост именно по нему.\n\n**Gotcha:** Тип поста и теги — независимые параметры. `/post deep_dive RAG` означает: тип=deep_dive, тег=RAG."
+    },
+    {
+      "file": "src/agents/coordinator.py",
+      "line": 78,
+      "title": "Coordinator: оркестрирует Scraper → Analyzer",
+      "description": "**Situation:** `run_pipeline` — сердце системы.\n\n**Mechanism:** Два режима:\n1. Теги указаны → `scrape_by_tags()` ищет на HN по этим тегам, результаты идут прямо в `run_multi()` минуя БД\n2. Теги не указаны → полный `scraper_run()` сохраняет в Supabase, `run_multi()` читает из БД\n\n**Implication:** Ручной тег-запрос изолирован от основного потока данных.\n\n**Gotcha:** После генерации посты не сохраняются в БД — они живут в `drafts` dict до явного решения пользователя (одобрить/отклонить/сохранить)."
+    },
+    {
+      "file": "src/agents/scraper_agent.py",
+      "line": 63,
+      "title": "Scraper: как HackerNews отдаёт данные",
+      "description": "**Situation:** `_fetch_hn_stories` — единственная точка получения внешних данных.\n\n**Mechanism:** Algolia API HN: `query=` + фильтр по времени (`created_at_i`) и минимальным points. Возвращает до 15 историй. Каждая история оборачивается в `RawTweet` с `id='hn_{objectID}'`.\n\n**Implication:** Дедупликация по `id` — одна и та же HN-история никогда не создаст дубликат в БД, даже если попала под несколько запросов.\n\n**Gotcha:** Для ручных тегов (`scrape_by_tags`) окно поиска расширено до 30 дней — иначе узкие теги дают 0 результатов за 24ч."
+    },
+    {
+      "file": "src/agents/analyzer_agent.py",
+      "line": 58,
+      "title": "Analyzer: фильтрация и ранжирование",
+      "description": "**Situation:** `_filter_and_rank` решает, какие истории достаточно релевантны для генерации поста.\n\n**Mechanism:** Каждый твит получает score: +0.15 за каждое ключевое слово из `HIGH_VALUE_KEYWORDS` (GPT, Claude, release...) + до 0.4 за лайки + до 0.2 за retweets. Порог: score ≥ 0.15. Исключение: `topic == 'manual'` — пользовательские теги проходят без фильтра.\n\n**Implication:** Случайный спам или нерелевантные истории отсеиваются автоматически.\n\n**Gotcha:** Короткие или нишевые запросы могут дать 0 элементов после фильтра — именно поэтому manual-истории обходят порог."
+    },
+    {
+      "file": "src/agents/analyzer_agent.py",
+      "line": 161,
+      "title": "Analyzer: генерация батча уникальных постов",
+      "description": "**Situation:** `run_multi` — главная функция анализатора.\n\n**Mechanism:** Итерирует по группам топиков (до 20 статей на входе). Для каждой группы генерирует пост через LLM, проверяет уникальность относительно:\n1. Опубликованных постов в БД (последние 10)\n2. Уже сгенерированных в этом батче\n\nЕсли уникален — добавляет в результат. Лимит: 5 постов на выход.\n\n**Implication:** Посты в одном батче тоже не повторяют друг друга по теме.\n\n**Gotcha:** Тип поста ротируется автоматически (news_digest → deep_dive → tool_spotlight → opinion). При ручном `/post deep_dive` — все посты будут одного типа."
+    },
+    {
+      "file": "src/generator/content_generator.py",
+      "line": 43,
+      "title": "Generator: как LLM получает контекст",
+      "description": "**Situation:** `_build_context` формирует промпт-контекст перед отправкой в Groq.\n\n**Mechanism:** Если запрос с тегами — сначала идёт блок `=== ФОКУС ПОСТА ===` с явной инструкцией писать именно про эти теги и не использовать дефолтные хэштеги. Примеры прошлых постов добавляются только в авто-режиме.\n\n**Implication:** Ручные запросы не биасятся предыдущими постами — LLM фокусируется на теме.\n\n**Gotcha:** Промпт-шаблоны версионируются в `config/prompts/` и регистрируются в `registry.yaml`. Менять стиль — только там, не в коде."
+    },
+    {
+      "file": "src/main.py",
+      "line": 418,
+      "title": "Callback: откладываем публикацию",
+      "description": "**Situation:** Пользователь нажимает кнопку «⏱ Через 30 мин» под постом.\n\n**Mechanism:** `callback_post_action` вычисляет `run_at = now + delay_minutes`, создаёт APScheduler `DateTrigger`, сохраняет пост в БД со статусом `waiting_publish` и записывает `scheduled_at = run_at`.\n\n**Implication:** При перезапуске бота `_restore_scheduled_posts` прочитает этот пост из БД и пересоздаст задачу.\n\n**Gotcha:** Если бот был выключен и время уже прошло — пост публикуется немедленно через `asyncio.create_task`."
+    },
+    {
+      "file": "src/database/models.py",
+      "line": 40,
+      "title": "Модель Post: жизненный цикл статуса",
+      "description": "**Situation:** `Post` — центральная модель системы.\n\n**Mechanism:** Статусы по порядку:\n- `pending` — сохранён, ждёт ручного решения\n- `waiting_publish` — запланирован на время (`scheduled_at`)\n- `published` — опубликован в канал\n- `failed` — все попытки исчерпаны\n- `cancelled` — отклонён вручную\n\n**Implication:** Фильтр `waiting_publish` + `published` используется при проверке уникальности — запланированные посты тоже участвуют в сравнении.\n\n**Gotcha:** `scheduled_at` при создании = время генерации. При откладывании — перезаписывается на время будущей публикации."
+    },
+    {
+      "file": "src/agents/publisher_agent.py",
+      "line": 22,
+      "title": "Publisher: retry-логика публикации",
+      "description": "**Situation:** `publish_post` — финальный шаг, отправка в Telegram-канал.\n\n**Mechanism:** До `MAX_RETRY_ATTEMPTS` попыток с паузой 1 час между ними. При успехе обновляет статус на `published` и записывает `telegram_message_id`. При исчерпании — статус `failed`.\n\n**Implication:** Временный сбой Telegram API не потеряет пост — он повторится автоматически.\n\n**Gotcha:** `dry_run=true` в `.env` полностью эмулирует публикацию без реальной отправки — удобно для тестирования."
+    },
+    {
+      "file": "config",
+      "title": "Конфигурация: что можно менять без кода",
+      "description": "Три файла управляют поведением без правки Python:\n\n- **`config/topics.json`** — поисковые запросы для автоскрапинга HN. Редактируется через `/add_topic`, `/remove_topic`\n- **`config/schedule.json`** — расписание автоматических запусков. Редактируется через `/add_schedule`, `/remove_schedule`\n- **`config/prompts/`** — промпт-шаблоны для каждого типа поста. Версионируются (`_v1.0.0.md`), регистрируются в `registry.yaml`\n\nТеперь ты знаешь весь путь: HackerNews → фильтр → LLM → ревью → Telegram. Следующий шаг — запусти бота командой из `CLAUDE.md` и попробуй `/post`."
+    }
+  ]
+}

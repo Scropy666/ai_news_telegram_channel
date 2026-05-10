@@ -1,0 +1,167 @@
+{
+  "name": "AI News Telegram Channel",
+  "description": "Multi-agent system for automated AI news Telegram channel",
+  "version": "1.0.0",
+
+  "safety": {
+    "require_confirmation_for": {
+      "database": {
+        "description": "All destructive database operations",
+        "commands": [
+          "DROP TABLE",
+          "DROP DATABASE",
+          "DROP SCHEMA",
+          "DROP INDEX",
+          "DROP VIEW",
+          "TRUNCATE TABLE",
+          "DELETE FROM (without WHERE)",
+          "ALTER TABLE DROP COLUMN",
+          "ALTER TABLE DROP CONSTRAINT"
+        ],
+        "confirmation_code_required": true
+      },
+      "filesystem": {
+        "description": "Destructive file system operations",
+        "commands": [
+          "rm -rf",
+          "rm -rf /",
+          "rm -rf /*",
+          "rm -rf ~",
+          "find * -delete",
+          "mkfs",
+          "dd if=/dev/zero",
+          "truncate -s 0",
+          "> /etc/",
+          "mv * /tmp",
+          "del /f /s /q",
+          "rd /s /q"
+        ],
+        "confirmation_code_required": true
+      },
+      "git": {
+        "description": "Destructive git operations",
+        "commands": [
+          "git reset --hard",
+          "git push --force",
+          "git push -f",
+          "git clean -fd",
+          "git filter-branch",
+          "git filter-repo",
+          "git reflog expire",
+          "git submodule deinit -f"
+        ],
+        "confirmation_code_required": true
+      },
+      "system": {
+        "description": "System-level destructive operations",
+        "commands": [
+          "iptables -F",
+          "iptables -X",
+          "kill -9 1",
+          "kill -9 -1",
+          "killall -9",
+          "pkill -9",
+          "userdel -r",
+          "systemctl stop",
+          "ufw disable",
+          "chmod -R 777 /",
+          "chown -R"
+        ],
+        "confirmation_code_required": true
+      },
+      "docker": {
+        "description": "Destructive Docker operations",
+        "commands": [
+          "docker system prune",
+          "docker volume prune",
+          "docker rm -f $(docker ps -aq)",
+          "docker rmi -f $(docker images -q)",
+          "docker-compose down -v"
+        ],
+        "confirmation_code_required": true
+      },
+      "kubernetes": {
+        "description": "Destructive K8s operations",
+        "commands": [
+          "kubectl delete all --all",
+          "kubectl delete namespace",
+          "kubectl delete pvc --all",
+          "kubectl delete pv --all",
+          "kubectl drain --force --delete-local-data"
+        ],
+        "confirmation_code_required": true
+      },
+      "cloud": {
+        "description": "Destructive cloud provider operations",
+        "commands": [
+          "aws s3 rm --recursive",
+          "aws s3 rb --force",
+          "aws rds delete",
+          "aws ec2 terminate",
+          "gcloud sql instances delete",
+          "gcloud container clusters delete",
+          "az group delete"
+        ],
+        "confirmation_code_required": true
+      },
+      "python": {
+        "description": "Destructive Python operations",
+        "commands": [
+          "objects.all().delete()",
+          "objects.filter().delete()",
+          "manage.py flush",
+          "manage.py migrate zero",
+          "shutil.rmtree",
+          "os.system('rm",
+          "cache.clear()",
+          "flushall()",
+          "flushdb()"
+        ],
+        "confirmation_code_required": true
+      }
+    },
+
+    "confirmation_protocol": {
+      "steps": [
+        "STOP - Do not execute immediately",
+        "VERIFY - Confirm the command is necessary",
+        "BACKUP - Ensure backups exist",
+        "ASK - Get explicit user confirmation with unique code",
+        "LOG - Document what will be done",
+        "EXECUTE - Only after explicit confirmation"
+      ],
+      "confirmation_message_template": "⚠️ DANGEROUS OPERATION DETECTED ⚠️\n\nCommand: {command}\nImpact: {impact}\nRisk Level: {risk_level}\n\nType the following to confirm: \"{confirmation_code}\"\nOr reply: \"cancel\" to abort.",
+      "required_confirmation_phrase": "YES DELETE {code}"
+    },
+
+    "exceptions": {
+      "conditions_where_safe": [
+        "Environment is explicitly marked TEST_ENV=true",
+        "Fresh installation with no existing data",
+        "User explicitly requested force operation",
+        "Command includes --dry-run flag",
+        "Confirmed backup/snapshot exists"
+      ]
+    }
+  },
+
+  "coding_preferences": {
+    "style": "async/await everywhere",
+    "database": "Supabase REST API only",
+    "no_patterns": [
+      "Synchronous blocking calls",
+      "Hardcoded prompts in code",
+      "Credentials in code",
+      "Skip error handling",
+      "Direct agent-to-agent calls (use Coordinator only)"
+    ]
+  },
+
+  "project_structure": {
+    "src": "Source code directory",
+    "config": "Configuration files (JSON, prompts)",
+    "database": "Supabase client and models",
+    "agents": "Agent implementations",
+    "scheduler": "APScheduler wrapper"
+  }
+}

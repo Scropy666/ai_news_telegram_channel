@@ -1,0 +1,62 @@
+prompts:
+  news_digest:
+    default_version: "1.1.0"
+    description: "Дайджест новостей — заголовок + вариативная структура"
+    status: active
+
+  deep_dive:
+    default_version: "1.1.0"
+    description: "Глубокий разбор — заголовок + вариативная структура"
+    status: active
+
+  tool_spotlight:
+    default_version: "1.1.0"
+    description: "Обзор инструмента — заголовок + вариативная структура"
+    status: active
+
+  opinion:
+    default_version: "1.1.0"
+    description: "Авторское мнение — заголовок + вариативная структура"
+    status: active
+
+  poll_generator:
+    default_version: "1.0.0"
+    description: "Генерация опроса по теме"
+    status: active
+
+  uniqueness_check:
+    default_version: "1.0.0"
+    description: "Проверка уникальности поста по сравнению с опубликованными"
+    status: active
+
+  image_prompt:
+    default_version: "1.0.0"
+    description: "Генерация короткого английского промпта для Pollinations.ai"
+    status: active
+
+  commentator_skeptic:
+    default_version: "1.0.0"
+    description: "Комментарий от скептика"
+    status: active
+
+  commentator_excited:
+    default_version: "1.0.0"
+    description: "Комментарий от восхищённого"
+    status: active
+
+  commentator_curious:
+    default_version: "1.0.0"
+    description: "Комментарий от любопытного"
+    status: active
+
+  commentator_ironic:
+    default_version: "1.0.0"
+    description: "Комментарий от ироничного"
+    status: active
+
+  commentator_neutral:
+    default_version: "1.0.0"
+    description: "Нейтральный комментарий"
+    status: active
+
+ab_tests: []

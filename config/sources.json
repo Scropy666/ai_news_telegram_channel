@@ -1,0 +1,21 @@
+{
+  "reddit": {
+    "subreddits": [
+      "LocalLLaMA",
+      "MachineLearning",
+      "singularity",
+      "artificial",
+      "ChatGPT",
+      "ClaudeAI"
+    ]
+  },
+  "devto": {
+    "tags": [
+      "ai",
+      "machinelearning",
+      "llm",
+      "openai",
+      "artificialintelligence"
+    ]
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "jobs": [
+    {
+      "id": "j1",
+      "type": "news_digest",
+      "time": "09:00",
+      "days": "*"
+    },
+    {
+      "id": "j2",
+      "type": "deep_dive",
+      "time": "16:00",
+      "days": "*"
+    },
+    {
+      "id": "j3",
+      "type": "poll",
+      "time": "14:00",
+      "days": "*"
+    }
+  ]
+}

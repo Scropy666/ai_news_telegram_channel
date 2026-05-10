@@ -1,0 +1,162 @@
+{
+  "queries": [
+    {
+      "query": "AI agents",
+      "topic": "ai_agents",
+      "sources": [
+        "hackernews",
+        "reddit",
+        "devto"
+      ]
+    },
+    {
+      "query": "LLM",
+      "topic": "llm_releases",
+      "sources": [
+        "hackernews",
+        "reddit",
+        "devto"
+      ]
+    },
+    {
+      "query": "OpenAI",
+      "topic": "openai_anthropic",
+      "sources": [
+        "hackernews",
+        "reddit",
+        "devto"
+      ]
+    },
+    {
+      "query": "Anthropic",
+      "topic": "openai_anthropic",
+      "sources": [
+        "hackernews",
+        "reddit",
+        "devto"
+      ]
+    },
+    {
+      "query": "AI startup",
+      "topic": "startups",
+      "sources": [
+        "hackernews",
+        "devto"
+      ]
+    },
+    {
+      "query": "MCP model context protocol",
+      "topic": "devtools",
+      "sources": [
+        "hackernews",
+        "devto"
+      ]
+    },
+    {
+      "query": "AI developer tools",
+      "topic": "devtools",
+      "sources": [
+        "hackernews",
+        "devto"
+      ]
+    },
+    {
+      "query": "AIAgents",
+      "topic": "aiagents",
+      "sources": [
+        "hackernews",
+        "reddit",
+        "devto"
+      ]
+    },
+    {
+      "query": "AgenticAI",
+      "topic": "agenticai",
+      "sources": [
+        "hackernews",
+        "devto"
+      ]
+    },
+    {
+      "query": "AutonomousAgents",
+      "topic": "autonomousagents",
+      "sources": [
+        "hackernews",
+        "reddit"
+      ]
+    },
+    {
+      "query": "PersonalAI",
+      "topic": "personalai",
+      "sources": [
+        "hackernews",
+        "devto"
+      ]
+    },
+    {
+      "query": "LangGraph",
+      "topic": "langgraph",
+      "sources": [
+        "hackernews",
+        "devto"
+      ]
+    },
+    {
+      "query": "CrewAI",
+      "topic": "crewai",
+      "sources": [
+        "hackernews",
+        "devto"
+      ]
+    },
+    {
+      "query": "AutoGen",
+      "topic": "autogen",
+      "sources": [
+        "hackernews",
+        "devto"
+      ]
+    },
+    {
+      "query": "RAG",
+      "topic": "rag",
+      "sources": [
+        "hackernews",
+        "reddit",
+        "devto"
+      ]
+    },
+    {
+      "query": "Devin",
+      "topic": "devin",
+      "sources": [
+        "hackernews",
+        "reddit"
+      ]
+    },
+    {
+      "query": "AutoGPT",
+      "topic": "autogpt",
+      "sources": [
+        "hackernews",
+        "reddit"
+      ]
+    },
+    {
+      "query": "BabyAGI",
+      "topic": "babyagi",
+      "sources": [
+        "hackernews"
+      ]
+    },
+    {
+      "query": "MultiAgentSystems",
+      "topic": "multiagentsystems",
+      "sources": [
+        "hackernews",
+        "reddit",
+        "devto"
+      ]
+    }
+  ]
+}
