@@ -43,6 +43,7 @@ BOT_COMMANDS = [
     BotCommand('test',                 'Запустить тесты вручную'),
     BotCommand('commentator_status',   'Статистика комментатора за 7 дней'),
     BotCommand('commentator_test',     'Форс-запуск комментатора: <post_id>'),
+    BotCommand('comment',              'Мгновенный комментарий + реакция: <post_id>'),
 ]
 
 
@@ -522,6 +523,42 @@ async def cmd_commentator_test(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text('✅ Задачи запущены. Проверь логи.')
 
 
+async def cmd_comment(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update):
+        return
+    if not ctx.args:
+        await update.message.reply_text(
+            'Использование: `/comment <post_id>`\n\nОтправляет реакцию и комментарий немедленно.',
+            parse_mode='Markdown',
+        )
+        return
+
+    post_id = ctx.args[0]
+    await update.message.reply_text(f'🤖 Отправляю реакцию и комментарий для `{post_id[:8]}...`', parse_mode='Markdown')
+
+    from src.agents.commentator_agent import force_comment
+    import html as _html
+    result = await force_comment(post_id)
+
+    if not result.get('ok', True) and 'error' in result:
+        await update.message.reply_text(f'❌ {result["error"]}')
+        return
+
+    lines = [f'🎭 Персона: <b>{result["persona"]}</b>\n']
+
+    if 'reaction' in result:
+        lines.append(f'✅ Реакция: {result["reaction"]}')
+    elif 'reaction_error' in result:
+        lines.append(f'❌ Реакция: {_html.escape(result["reaction_error"])}')
+
+    if 'comment' in result:
+        lines.append(f'✅ Комментарий:\n<i>{_html.escape(result["comment"])}</i>')
+    elif 'comment_error' in result:
+        lines.append(f'⚠️ Комментарий: {_html.escape(result["comment_error"])}')
+
+    await update.message.reply_text('\n'.join(lines), parse_mode='HTML')
+
+
 # ── Discussion group auto-forward handler ─────────────────────────────────────
 
 async def handle_auto_forward(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -658,6 +695,7 @@ def main():
     app.add_handler(CommandHandler('test',               cmd_test))
     app.add_handler(CommandHandler('commentator_status', cmd_commentator_status))
     app.add_handler(CommandHandler('commentator_test',   cmd_commentator_test))
+    app.add_handler(CommandHandler('comment',            cmd_comment))
     app.add_handler(MessageHandler(filters.IS_AUTOMATIC_FORWARD, handle_auto_forward))
     app.add_handler(CallbackQueryHandler(
         callback_post_action,

@@ -17,10 +17,10 @@ logger = structlog.get_logger()
 _scheduler = None
 
 PERSONA_EMOJIS: dict[str, list[str]] = {
-    'skeptic': ['🤔', '🙄', '🤨'],
+    'skeptic': ['🤔', '🤨', '😐'],
     'excited': ['🔥', '🤯', '🎉'],
     'curious': ['🤔', '👀'],
-    'ironic':  ['🤡', '😏'],
+    'ironic':  ['🤡', '😈', '🥱'],
     'neutral': ['👍', '❤️'],
 }
 
@@ -276,6 +276,75 @@ async def on_discussion_forward(channel_msg_id: int, discussion_chat_id: int, di
 
     if targets:
         logger.info('commentator_forward_matched', channel_msg_id=channel_msg_id, updated=len(targets))
+
+
+async def force_comment(post_id: str) -> dict:
+    """Immediately send reaction + comment for a post. Used by /comment command."""
+    db = get_db()
+
+    post_rows = db.table('posts').select('*').eq('id', post_id).execute().data
+    if not post_rows:
+        return {'ok': False, 'error': f'Пост {post_id} не найден в БД'}
+
+    from src.database.models import Post as PostModel
+    post = PostModel(**post_rows[0])
+    if not post.telegram_message_id:
+        return {'ok': False, 'error': 'Пост ещё не опубликован (нет telegram_message_id)'}
+
+    bot = get_commentator_bot()
+    if not bot:
+        return {'ok': False, 'error': 'COMMENTATOR_BOT_TOKEN не задан'}
+
+    persona = _pick_persona()
+    emoji = _pick_emoji(persona)
+    result: dict = {'persona': persona, 'emoji': emoji}
+
+    # Reaction
+    try:
+        await bot.set_message_reaction(
+            chat_id=settings.telegram_channel_id,
+            message_id=post.telegram_message_id,
+            reaction=[ReactionTypeEmoji(emoji=emoji)],
+        )
+        result['reaction'] = emoji
+        logger.info('force_comment_reaction_sent', post_id=post_id, emoji=emoji)
+    except TelegramError as e:
+        result['reaction_error'] = str(e)
+        logger.error('force_comment_reaction_failed', post_id=post_id, error=str(e))
+
+    # Find discussion_message_id from any existing comment_action for this post
+    action_rows = (
+        db.table('comment_actions')
+        .select('discussion_chat_id, discussion_message_id')
+        .eq('post_id', post_id)
+        .execute()
+        .data
+    )
+    linked = next(
+        (r for r in action_rows if r.get('discussion_message_id') is not None),
+        None,
+    )
+
+    if not linked:
+        result['comment_error'] = 'discussion_message_id не найден (форвард ещё не пришёл?)'
+        return result
+
+    post_content = _get_post_content(post_id)
+    try:
+        raw_comment = await _generate_comment(post_content, persona)
+        comment = _humanize(raw_comment)
+        await bot.send_message(
+            chat_id=linked['discussion_chat_id'],
+            text=comment,
+            reply_to_message_id=linked['discussion_message_id'],
+        )
+        result['comment'] = comment
+        logger.info('force_comment_sent', post_id=post_id, persona=persona)
+    except TelegramError as e:
+        result['comment_error'] = str(e)
+        logger.error('force_comment_failed', post_id=post_id, error=str(e))
+
+    return result
 
 
 async def restore_pending_actions(scheduler) -> None:

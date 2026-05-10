@@ -37,3 +37,6 @@ logs/
 # Claude Code
 .claude/projects/
 .claude/settings.local.json
+
+#Logo
+logo.jpg

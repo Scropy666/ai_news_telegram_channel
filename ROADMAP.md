@@ -34,7 +34,7 @@ CREATE INDEX idx_raw_tweets_merge_group ON raw_tweets(merge_group_id);
 
 ### Шаги
 
-- [ ] **2.1** Выполнить SQL-миграцию в Supabase (колонки `source`, `merge_group_id`) ← **твоя задача**
+- [x] **2.1** Выполнить SQL-миграцию в Supabase (колонки `source`, `merge_group_id`)
 - [x] **2.2** Добавить `source: SourceType` и `merge_group_id: str | None` в `RawTweet` (`models.py`)
 - [x] **2.3** Добавить `sources: list[SourceType]` и `merged_count: int` в `NewsItem` (`models.py`)
 - [x] **2.4** Добавить настройки в `config.py`: `reddit_user_agent`, `reddit_min_score`, `devto_min_reactions`, `merge_similarity_threshold`
@@ -49,7 +49,7 @@ CREATE INDEX idx_raw_tweets_merge_group ON raw_tweets(merge_group_id);
 - [x] **2.13** Обновить `analyzer_agent._filter_and_rank()`: группировать по `merge_group_id`, агрегировать источники
 - [x] **2.14** Обновить `_format_news_for_prompt()` в `content_generator.py`: показывать все источники для merged-item
 - [x] **2.15** Обновить `/topics` в `main.py`: показывать источники для каждой записи
-- [ ] **2.16** Прогнать `/scrape` и проверить логи: сколько записей, сколько grouped, правильные id-префиксы ← **твоя задача**
+- [x] **2.16** Прогнать `/scrape` и проверить логи: сколько записей, сколько grouped, правильные id-префиксы
 
 ### Технические детали
 
@@ -89,7 +89,7 @@ ALTER TABLE posts
 
 ### Шаги
 
-- [ ] **1.1** Выполнить SQL-миграцию (`image_prompt`, `image_url`, `image_skipped_reason` в `posts`) ← **твоя задача**
+- [x] **1.1** Выполнить SQL-миграцию (`image_prompt`, `image_url`, `image_skipped_reason` в `posts`)
 - [x] **1.2** Добавить три поля в `Post` (`models.py`)
 - [x] **1.3** Добавить в `config.py`: `pollinations_base_url`, `pollinations_width`, `pollinations_height`, `pollinations_timeout_s`, `images_enabled`
 - [x] **1.4** Создать `config/prompts/image_prompt_v1.0.0.md` и зарегистрировать в `registry.yaml`
@@ -100,7 +100,7 @@ ALTER TABLE posts
 - [x] **1.9** Обновить preview в `coordinator.send_post_for_review()`: отправлять фото + текст при approve
 - [x] **1.10** В `dry_run`: генерировать prompt, но не дёргать Pollinations (логировать url)
 - [x] **1.11** Установить Pillow: добавить `Pillow>=10.0.0` в `requirements.txt`
-- [ ] **1.12** Установить Pillow в venv и прогнать e2e: `/post` → убедиться что фото приходит ← **твоя задача**
+- [x] **1.12** Установить Pillow в venv и прогнать e2e: `/post` → убедиться что фото приходит
 
 ### Технические детали
 
@@ -211,9 +211,9 @@ CREATE INDEX idx_comment_actions_post ON comment_actions(post_id);
 
 | Фича | Статус | Прогресс |
 |------|--------|----------|
-| Фича 2: Reddit + Dev.to | 🔄 В работе | 14/16 шагов |
-| Фича 1: Картинки | 🔄 В работе | 10/12 шагов |
-| Фича 3: Комментатор | 🔄 В работе | 10/11 шагов |
+| Фича 2: Reddit + Dev.to | 🔄 В работе | 16/16 шагов (Reddit API — в процессе получения доступа) |
+| Фича 1: Картинки | ✅ Готово | 12/12 шагов |
+| Фича 3: Комментатор | 🔄 В работе | 10/11 шагов (нужна discussion group) |
 
 ---
 
@@ -225,3 +225,6 @@ CREATE INDEX idx_comment_actions_post ON comment_actions(post_id);
 - **2026-05-04** — Фича 1: выполнены шаги 1.2–1.11; ожидает SQL-миграции (1.1) и e2e-теста (1.12)
 - **2026-05-05** — Фича 3: выполнены шаги 3.2–3.10; ожидает SQL-миграции (3.1) и e2e-теста (3.11)
 - **2026-05-05** — Фикс: edit_message_text → _edit_query_message (фото-сообщения не поддерживают edit_message_text)
+- **2026-05-10** — Фича 1 завершена: SQL-миграция + Pillow e2e прошёл успешно
+- **2026-05-10** — Фича 2: SQL-миграция и e2e /scrape выполнены; Reddit на паузе (получение API-доступа)
+- **2026-05-10** — Фича 3: добавлена команда /comment; e2e (3.11) заблокирован — нет discussion group
