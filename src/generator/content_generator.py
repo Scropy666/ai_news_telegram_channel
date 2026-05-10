@@ -15,6 +15,7 @@ logger = structlog.get_logger()
 client = AsyncGroq(api_key=settings.groq_api_key)
 MODEL = 'llama-3.3-70b-versatile'
 MAX_POST_LENGTH = 950  # must fit in Telegram photo caption (1024 limit minus header margin)
+MIN_POST_LENGTH = 600  # posts shorter than this are rejected and retried
 
 
 _SOURCE_LABELS = {'hackernews': 'HackerNews', 'reddit': 'Reddit', 'devto': 'Dev.to'}
@@ -87,14 +88,28 @@ async def generate_post(
 
     logger.info('generating_post', type=post_type, news_count=len(news_items), tags=tags)
 
-    response = await client.chat.completions.create(
-        model=MODEL,
-        messages=[{'role': 'user', 'content': full_prompt}],
-        max_tokens=500,
-        temperature=0.8,
-    )
+    content = ''
+    for attempt in range(3):
+        prompt = full_prompt
+        if attempt > 0:
+            prompt += f'\n\n[Предыдущий ответ был слишком коротким ({len(content)} симв.). Напиши развёрнутее — минимум 600 символов.]'
 
-    content = response.choices[0].message.content.strip()
+        response = await client.chat.completions.create(
+            model=MODEL,
+            messages=[{'role': 'user', 'content': prompt}],
+            max_tokens=600,
+            temperature=0.8,
+        )
+        candidate = response.choices[0].message.content.strip()
+
+        if len(candidate) > len(content):
+            content = candidate  # always keep the longest result
+
+        if len(content) >= MIN_POST_LENGTH:
+            break
+
+        logger.warning('post_too_short', attempt=attempt + 1, length=len(content))
+
     if len(content) > MAX_POST_LENGTH:
         # Trim at word boundary to avoid cutting mid-word
         trimmed = content[:MAX_POST_LENGTH - 1]
