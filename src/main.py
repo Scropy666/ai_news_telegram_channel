@@ -44,6 +44,7 @@ BOT_COMMANDS = [
     BotCommand('commentator_status',   'Статистика комментатора за 7 дней'),
     BotCommand('commentator_test',     'Форс-запуск комментатора: <post_id>'),
     BotCommand('comment',              'Мгновенный комментарий + реакция: <post_id>'),
+    BotCommand('language',             'Язык постов: /language [en|ru]'),
 ]
 
 
@@ -523,6 +524,35 @@ async def cmd_commentator_test(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text('✅ Задачи запущены. Проверь логи.')
 
 
+async def cmd_language(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update):
+        return
+    from src.settings_store import get_post_language, set_post_language, SUPPORTED_LANGUAGES, LANGUAGE_LABELS
+
+    if not ctx.args:
+        current = get_post_language()
+        label = LANGUAGE_LABELS.get(current, current)
+        await update.message.reply_text(
+            f'Текущий язык постов: *{label}* (`{current}`)\n\n'
+            f'Сменить: `/language en` или `/language ru`',
+            parse_mode='Markdown',
+        )
+        return
+
+    lang = ctx.args[0].lower()
+    if lang not in SUPPORTED_LANGUAGES:
+        await update.message.reply_text(
+            f'❌ Неизвестный язык: `{lang}`\nДоступные: `en`, `ru`',
+            parse_mode='Markdown',
+        )
+        return
+
+    set_post_language(lang)
+    flags = {'en': '🇬🇧', 'ru': '🇷🇺'}
+    label = LANGUAGE_LABELS[lang]
+    await update.message.reply_text(f'{flags[lang]} Язык постов изменён на *{label}*', parse_mode='Markdown')
+
+
 async def cmd_comment(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update):
         return
@@ -695,6 +725,7 @@ def main():
     app.add_handler(CommandHandler('test',               cmd_test))
     app.add_handler(CommandHandler('commentator_status', cmd_commentator_status))
     app.add_handler(CommandHandler('commentator_test',   cmd_commentator_test))
+    app.add_handler(CommandHandler('language',           cmd_language))
     app.add_handler(CommandHandler('comment',            cmd_comment))
     app.add_handler(MessageHandler(filters.IS_AUTOMATIC_FORWARD, handle_auto_forward))
     app.add_handler(CallbackQueryHandler(

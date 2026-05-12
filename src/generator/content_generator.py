@@ -9,6 +9,7 @@ from src.database.models import NewsItem, Post, PostType
 from src.database.client import get_db
 from src.generator.prompt_registry import get_prompt
 from src.generator.image_generator import generate_image_prompt, build_image_url, make_seed
+from src.settings_store import get_post_language, LANGUAGE_LABELS
 
 logger = structlog.get_logger()
 
@@ -84,7 +85,12 @@ async def generate_post(
     prompt_template, prompt_version = get_prompt(post_type)
     similar_posts = get_recent_published_posts(limit=3)
     context = _build_context(news_items, similar_posts, tags=tags)
-    full_prompt = prompt_template.replace('{{CONTEXT}}', context)
+    lang = get_post_language()
+    full_prompt = (
+        prompt_template
+        .replace('{{LANGUAGE}}', LANGUAGE_LABELS.get(lang, lang))
+        .replace('{{CONTEXT}}', context)
+    )
 
     logger.info('generating_post', type=post_type, news_count=len(news_items), tags=tags)
 
