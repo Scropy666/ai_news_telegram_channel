@@ -1,29 +1,26 @@
-import json
-from pathlib import Path
-
-_PATH = Path(__file__).parent.parent / 'config' / 'bot_settings.json'
-_DEFAULTS: dict = {'post_language': 'en'}
+from src.database.client import get_db
 
 LANGUAGE_LABELS = {'en': 'English', 'ru': 'русский'}
 SUPPORTED_LANGUAGES = list(LANGUAGE_LABELS.keys())
 
+_DEFAULTS = {'post_language': 'en'}
 
-def _load() -> dict:
+
+def _get(key: str) -> str | None:
     try:
-        return json.loads(_PATH.read_text(encoding='utf-8'))
+        rows = get_db().table('bot_settings').select('value').eq('key', key).execute().data
+        return rows[0]['value'] if rows else None
     except Exception:
-        return dict(_DEFAULTS)
+        return None
 
 
-def _save(data: dict) -> None:
-    _PATH.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
+def _set(key: str, value: str) -> None:
+    get_db().table('bot_settings').upsert({'key': key, 'value': value}).execute()
 
 
 def get_post_language() -> str:
-    return _load().get('post_language', _DEFAULTS['post_language'])
+    return _get('post_language') or _DEFAULTS['post_language']
 
 
 def set_post_language(lang: str) -> None:
-    data = _load()
-    data['post_language'] = lang
-    _save(data)
+    _set('post_language', lang)
