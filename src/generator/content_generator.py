@@ -70,7 +70,7 @@ def _build_context(
         # Прошлые посты как стилевые примеры — только для авто-режима.
         # При ручных тегах они биасят LLM к копированию хэштегов/тем.
         parts += [
-            '\n=== ПРИМЕРЫ ПРОШЛЫХ ПОСТОВ (для соответствия стилю) ===',
+            '\n=== ПРИМЕРЫ ПРОШЛЫХ ПОСТОВ (только структура и тон, НЕ язык) ===',
             *[f'---\n{p}' for p in similar_posts],
         ]
     return '\n\n'.join(parts)
@@ -86,11 +86,13 @@ async def generate_post(
     similar_posts = get_recent_published_posts(limit=3)
     context = _build_context(news_items, similar_posts, tags=tags)
     lang = get_post_language()
+    lang_label = LANGUAGE_LABELS.get(lang, lang)
     full_prompt = (
         prompt_template
-        .replace('{{LANGUAGE}}', LANGUAGE_LABELS.get(lang, lang))
+        .replace('{{LANGUAGE}}', lang_label)
         .replace('{{CONTEXT}}', context)
     )
+    full_prompt += f'\n\nREMINDER: Write the entire post in {lang_label} only. Do not use any other language regardless of the example posts.'
 
     logger.info('generating_post', type=post_type, news_count=len(news_items), tags=tags)
 
