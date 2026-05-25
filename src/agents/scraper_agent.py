@@ -105,26 +105,36 @@ async def run() -> ScraperResult:
     all_tweets: list[RawTweet] = []
     errors: list[str] = []
 
-    # ── HackerNews: per-topic query (query-based search, поэтому разный результат на каждый запрос)
+    # ── HackerNews + Reddit keyword search: per-topic query
+    reddit_search_pairs: list[tuple[str, str]] = []
     for entry in queries:
-        if 'hackernews' not in entry.get('sources', ['hackernews']):
-            continue
-        try:
-            hn_tweets = await hackernews.fetch(entry['query'], entry['topic'])
-            all_tweets.extend(hn_tweets)
-            await asyncio.sleep(0.5)
-        except Exception as e:
-            errors.append(f"HN {entry['query']}: {e}")
+        sources = entry.get('sources', ['hackernews'])
+        if 'hackernews' in sources:
+            try:
+                hn_tweets = await hackernews.fetch(entry['query'], entry['topic'])
+                all_tweets.extend(hn_tweets)
+                await asyncio.sleep(0.5)
+            except Exception as e:
+                errors.append(f"HN {entry['query']}: {e}")
+        if 'reddit' in sources:
+            reddit_search_pairs.append((entry['query'], entry['topic']))
 
-    # ── Reddit: один раз глобально (subreddits одинаковые для всех тем)
-    reddit_enabled = any('reddit' in e.get('sources', []) for e in queries)
-    if reddit_enabled and subreddits:
+    if reddit_search_pairs:
+        try:
+            rd_search_tweets = await reddit.search_all(reddit_search_pairs)
+            all_tweets.extend(rd_search_tweets)
+            logger.info('reddit_search_done', count=len(rd_search_tweets))
+        except Exception as e:
+            errors.append(f"Reddit search: {e}")
+
+    # ── Reddit subreddit fetch (legacy, requires OAuth + sources.json subreddits config)
+    if subreddits:
         try:
             rd_tweets = await reddit.fetch_all(subreddits, topic='general')
             all_tweets.extend(rd_tweets)
-            logger.info('reddit_batch_done', count=len(rd_tweets))
+            logger.info('reddit_subreddit_done', count=len(rd_tweets))
         except Exception as e:
-            errors.append(f"Reddit: {e}")
+            errors.append(f"Reddit subreddits: {e}")
 
     # ── Dev.to: один раз глобально (теги из sources.json одинаковые для всех тем)
     devto_enabled = any('devto' in e.get('sources', []) for e in queries)

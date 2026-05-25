@@ -50,7 +50,75 @@ async def _get_token() -> str | None:
         return None
 
 
-# ── Fetch ─────────────────────────────────────────────────────────────────────
+def _parse_children(children: list, topic: str) -> list[RawTweet]:
+    tweets = []
+    for child in children:
+        d = child.get('data', {})
+        score = d.get('score', 0)
+        if score < settings.reddit_min_score:
+            continue
+        post_id = str(d.get('id', ''))
+        url_val = d.get('url') or f'https://www.reddit.com{d.get("permalink", "")}'
+        tweets.append(RawTweet(
+            id=f'rd_{post_id}',
+            text=d.get('title', ''),
+            author=d.get('author', 'reddit'),
+            likes=score,
+            retweets=d.get('num_comments', 0),
+            url=url_val,
+            scraped_at=datetime.now(timezone.utc),
+            topic=topic,
+            status='new',
+            source='reddit',
+        ))
+    return tweets
+
+
+# ── Keyword search (public JSON API, no OAuth required) ───────────────────────
+
+async def search(
+    query: str,
+    topic: str,
+    limit: int = 25,
+) -> list[RawTweet]:
+    """Search Reddit posts by keyword using the public JSON API."""
+    token = await _get_token()
+    if token:
+        base = 'https://oauth.reddit.com/search'
+        headers = {'User-Agent': _user_agent(), 'Authorization': f'Bearer {token}'}
+    else:
+        base = 'https://www.reddit.com/search.json'
+        headers = {'User-Agent': _user_agent()}
+
+    params = f'?q={query}&sort=hot&t=week&limit={limit}&type=link'
+    try:
+        async with httpx.AsyncClient(timeout=15, headers=headers) as client:
+            r = await client.get(base + params)
+            if r.status_code == 429:
+                logger.warning('reddit_rate_limited', query=query)
+                return []
+            r.raise_for_status()
+            children = r.json().get('data', {}).get('children', [])
+
+        tweets = _parse_children(children, topic)
+        logger.info('reddit_search_fetched', query=query, found=len(tweets))
+        return tweets
+    except Exception as e:
+        logger.warning('reddit_search_error', query=query, error=str(e))
+        return []
+
+
+async def search_all(queries: list[tuple[str, str]]) -> list[RawTweet]:
+    """Search multiple (query, topic) pairs with rate-limit delay between each."""
+    all_tweets: list[RawTweet] = []
+    for query, topic in queries:
+        tweets = await search(query, topic)
+        all_tweets.extend(tweets)
+        await asyncio.sleep(1.0)
+    return all_tweets
+
+
+# ── Subreddit fetch (OAuth2 required) ────────────────────────────────────────
 
 async def fetch(
     subreddit: str,
@@ -76,26 +144,7 @@ async def fetch(
             r.raise_for_status()
             children = r.json().get('data', {}).get('children', [])
 
-        tweets = []
-        for child in children:
-            d = child.get('data', {})
-            score = d.get('score', 0)
-            if score < settings.reddit_min_score:
-                continue
-            post_id = str(d.get('id', ''))
-            url_val = d.get('url') or f'https://www.reddit.com{d.get("permalink", "")}'
-            tweets.append(RawTweet(
-                id=f'rd_{post_id}',
-                text=d.get('title', ''),
-                author=d.get('author', 'reddit'),
-                likes=score,
-                retweets=d.get('num_comments', 0),
-                url=url_val,
-                scraped_at=datetime.now(timezone.utc),
-                topic=topic,
-                status='new',
-                source='reddit',
-            ))
+        tweets = _parse_children(children, topic)
         logger.info('reddit_fetched', subreddit=subreddit, found=len(tweets))
         return tweets
     except Exception as e:
@@ -104,7 +153,6 @@ async def fetch(
 
 
 async def fetch_all(subreddits: list[str], topic: str) -> list[RawTweet]:
-    # Проверяем credentials до итерации — не тратим sleep попусту
     token = await _get_token()
     if not token:
         return []
@@ -112,5 +160,5 @@ async def fetch_all(subreddits: list[str], topic: str) -> list[RawTweet]:
     for sub in subreddits:
         tweets = await fetch(sub, topic)
         all_tweets.extend(tweets)
-        await asyncio.sleep(1.0)  # respect rate limit (only when actually fetching)
+        await asyncio.sleep(1.0)
     return all_tweets
