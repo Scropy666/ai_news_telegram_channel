@@ -59,4 +59,9 @@ prompts:
     description: "Нейтральный комментарий"
     status: active
 
+  commentator_expert:
+    default_version: "1.0.0"
+    description: "Экспертный комментарий с полезным контекстом"
+    status: active
+
 ab_tests: []

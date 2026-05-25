@@ -17,6 +17,7 @@ client = AsyncGroq(api_key=settings.groq_api_key)
 MODEL = 'llama-3.3-70b-versatile'
 MAX_POST_LENGTH = 950  # must fit in Telegram photo caption (1024 limit minus header margin)
 MIN_POST_LENGTH = 600  # posts shorter than this are rejected and retried
+_SOURCE_SUFFIX_RESERVE = 120  # chars reserved for "\n\n🔗 <url>"
 
 
 _SOURCE_LABELS = {'hackernews': 'HackerNews', 'reddit': 'Reddit', 'devto': 'Dev.to'}
@@ -118,13 +119,23 @@ async def generate_post(
 
         logger.warning('post_too_short', attempt=attempt + 1, length=len(content))
 
-    if len(content) > MAX_POST_LENGTH:
-        # Trim at word boundary to avoid cutting mid-word
-        trimmed = content[:MAX_POST_LENGTH - 1]
-        last_space = trimmed.rfind(' ')
-        if last_space > MAX_POST_LENGTH * 0.8:
-            trimmed = trimmed[:last_space]
-        content = trimmed.rstrip('.,;:') + '…'
+    source_url = news_items[0].source_url if news_items else None
+    url_suffix = f'\n\n🔗 {source_url}' if source_url else ''
+    body_limit = MAX_POST_LENGTH - len(url_suffix)
+
+    if len(content) > body_limit:
+        trimmed = content[:body_limit]
+        # Prefer cutting at a sentence boundary to avoid incomplete thoughts
+        last_sentence_end = max(trimmed.rfind('.'), trimmed.rfind('!'), trimmed.rfind('?'))
+        if last_sentence_end > body_limit * 0.7:
+            content = trimmed[:last_sentence_end + 1]
+        else:
+            last_space = trimmed.rfind(' ')
+            if last_space > body_limit * 0.8:
+                trimmed = trimmed[:last_space]
+            content = trimmed.rstrip('.,;:') + '…'
+
+    content = content + url_suffix
 
     post_id = str(uuid4())
     post = Post(

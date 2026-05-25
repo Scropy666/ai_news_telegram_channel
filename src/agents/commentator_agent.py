@@ -20,8 +20,9 @@ PERSONA_EMOJIS: dict[str, list[str]] = {
     'skeptic': ['🤔', '🤨', '😐'],
     'excited': ['🔥', '🤯', '🎉'],
     'curious': ['🤔', '👀'],
-    'ironic':  ['🤡', '😈', '🥱'],
+    'ironic':  ['😈', '🥱'],
     'neutral': ['👍', '❤️'],
+    'expert':  ['💡', '📌'],
 }
 
 PERSONAS = list(PERSONA_EMOJIS.keys())
@@ -52,13 +53,14 @@ def _decide_actions() -> list[str]:
     return actions or ['skipped']
 
 
-def _humanize(text: str) -> str:
-    """Lowercase first letter, maybe strip trailing period, add light typos."""
+def _humanize(text: str, persona: str = '') -> str:
+    """Maybe strip trailing period; add light typos (skipped for expert persona)."""
     if not text:
         return text
-    text = text[0].lower() + text[1:]
     if text.endswith('.') and random.random() < 0.6:
         text = text[:-1]
+    if persona == 'expert':
+        return text
     words = text.split()
     result = []
     for word in words:
@@ -238,7 +240,7 @@ async def execute_action(action_id: str) -> None:
         post_content = _get_post_content(action.post_id)
         try:
             raw_comment = await _generate_comment(post_content, action.persona)
-            comment = _humanize(raw_comment)
+            comment = _humanize(raw_comment, action.persona or '')
             await bot.send_message(
                 chat_id=action.discussion_chat_id,
                 text=comment,
@@ -332,7 +334,7 @@ async def force_comment(post_id: str) -> dict:
     post_content = _get_post_content(post_id)
     try:
         raw_comment = await _generate_comment(post_content, persona)
-        comment = _humanize(raw_comment)
+        comment = _humanize(raw_comment, persona)
         await bot.send_message(
             chat_id=linked['discussion_chat_id'],
             text=comment,

@@ -14,7 +14,7 @@ RawTweetStatus = Literal['new', 'processed']
 SourceType = Literal['hackernews', 'reddit', 'devto']
 CommentActionType = Literal['reaction', 'comment', 'skipped']
 CommentActionStatus = Literal['scheduled', 'awaiting_forward', 'done', 'failed']
-CommentPersona = Literal['skeptic', 'excited', 'curious', 'ironic', 'neutral']
+CommentPersona = Literal['skeptic', 'excited', 'curious', 'ironic', 'neutral', 'expert']
 
 
 # ── Database models ───────────────────────────────────────────────────────────
