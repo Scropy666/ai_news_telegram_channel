@@ -7,6 +7,7 @@ from src.config import settings
 from src.database.models import Post
 from src.scheduler.scheduler import TYPE_LABELS
 from src.utils import get_bot
+from src.generator.image_generator import fetch_image_bytes, make_seed
 
 logger = structlog.get_logger()
 
@@ -71,12 +72,19 @@ async def send_post_for_review(post: Post, index: int, total: int, drafts: dict)
         )
 
     try:
-        if post.image_url and settings.images_enabled:
+        img_bytes: bytes | None = None
+        if post.image_prompt and settings.images_enabled:
+            img_bytes = await fetch_image_bytes(post.image_prompt, make_seed(post.id or 'default'))
+
+        if img_bytes:
+            caption = header + post.content
+            if len(caption) > 1024:
+                caption = caption[:1020] + '...'
             try:
                 await bot.send_photo(
                     chat_id=settings.telegram_admin_chat_id,
-                    photo=post.image_url,
-                    caption=header + post.content,
+                    photo=img_bytes,
+                    caption=caption,
                     parse_mode='HTML',
                     reply_markup=keyboard,
                 )
@@ -85,7 +93,7 @@ async def send_post_for_review(post: Post, index: int, total: int, drafts: dict)
                 await _send_as_text()
         else:
             await _send_as_text()
-        logger.info('post_sent_for_review', post_id=post.id, index=index, has_image=bool(post.image_url))
+        logger.info('post_sent_for_review', post_id=post.id, index=index, has_image=bool(img_bytes))
     except TelegramError as e:
         logger.error('send_review_failed', post_id=post.id, error=str(e))
 
