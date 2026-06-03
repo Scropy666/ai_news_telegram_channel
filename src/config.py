@@ -33,6 +33,8 @@ class Settings(BaseSettings):
     reddit_client_secret: str = ''
     reddit_username: str = 'ai_news_bot'   # для User-Agent
     reddit_min_score: int = 20
+    # Прокси для Reddit (e.g. http://user:pass@p.webshare.io:80) — нужен если Railway IP заблокирован
+    reddit_proxy: str = ''
 
     # Dev.to scraper
     devto_min_reactions: int = 10

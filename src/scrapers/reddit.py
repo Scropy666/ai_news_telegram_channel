@@ -20,6 +20,14 @@ def _user_agent() -> str:
     return f'python:ai-news-bot:1.0 (by /u/{settings.reddit_username})'
 
 
+def _client_kwargs() -> dict:
+    """Общие параметры для httpx.AsyncClient: таймаут + прокси если настроен."""
+    kwargs: dict = {'timeout': 15}
+    if settings.reddit_proxy:
+        kwargs['proxy'] = settings.reddit_proxy
+    return kwargs
+
+
 async def _get_token() -> str | None:
     """Получить OAuth2 access token (client credentials). Кэшируем на время жизни."""
     global _token, _token_expires_at
@@ -31,7 +39,7 @@ async def _get_token() -> str | None:
         return _token
 
     try:
-        async with httpx.AsyncClient(timeout=15) as client:
+        async with httpx.AsyncClient(**_client_kwargs()) as client:
             r = await client.post(
                 'https://www.reddit.com/api/v1/access_token',
                 auth=(settings.reddit_client_id, settings.reddit_client_secret),
@@ -92,7 +100,7 @@ async def search(
 
     params = f'?q={query}&sort=hot&t=week&limit={limit}&type=link'
     try:
-        async with httpx.AsyncClient(timeout=15, headers=headers) as client:
+        async with httpx.AsyncClient(**_client_kwargs(), headers=headers) as client:
             r = await client.get(base + params)
             if r.status_code == 429:
                 logger.warning('reddit_rate_limited', query=query)
@@ -114,7 +122,7 @@ async def search_all(queries: list[tuple[str, str]]) -> list[RawTweet]:
     for query, topic in queries:
         tweets = await search(query, topic)
         all_tweets.extend(tweets)
-        await asyncio.sleep(1.0)
+        await asyncio.sleep(3.0)
     return all_tweets
 
 
@@ -136,7 +144,7 @@ async def fetch(
         'Authorization': f'Bearer {token}',
     }
     try:
-        async with httpx.AsyncClient(timeout=15, headers=headers) as client:
+        async with httpx.AsyncClient(**_client_kwargs(), headers=headers) as client:
             r = await client.get(url)
             if r.status_code == 429:
                 logger.warning('reddit_rate_limited', subreddit=subreddit)

@@ -59,25 +59,32 @@ async def send_post_for_review(post: Post, index: int, total: int, drafts: dict)
     bot = get_bot()
     keyboard = build_post_keyboard(post.id)
 
+    async def _send_as_text() -> None:
+        text = header + post.content
+        if len(text) > 4096:
+            text = text[:4090] + '...'
+        await bot.send_message(
+            chat_id=settings.telegram_admin_chat_id,
+            text=text,
+            parse_mode='HTML',
+            reply_markup=keyboard,
+        )
+
     try:
         if post.image_url and settings.images_enabled:
-            await bot.send_photo(
-                chat_id=settings.telegram_admin_chat_id,
-                photo=post.image_url,
-                caption=header + post.content,
-                parse_mode='HTML',
-                reply_markup=keyboard,
-            )
+            try:
+                await bot.send_photo(
+                    chat_id=settings.telegram_admin_chat_id,
+                    photo=post.image_url,
+                    caption=header + post.content,
+                    parse_mode='HTML',
+                    reply_markup=keyboard,
+                )
+            except TelegramError as img_err:
+                logger.warning('send_photo_failed_fallback', post_id=post.id, error=str(img_err))
+                await _send_as_text()
         else:
-            text = header + post.content
-            if len(text) > 4096:
-                text = text[:4090] + '...'
-            await bot.send_message(
-                chat_id=settings.telegram_admin_chat_id,
-                text=text,
-                parse_mode='HTML',
-                reply_markup=keyboard,
-            )
+            await _send_as_text()
         logger.info('post_sent_for_review', post_id=post.id, index=index, has_image=bool(post.image_url))
     except TelegramError as e:
         logger.error('send_review_failed', post_id=post.id, error=str(e))
