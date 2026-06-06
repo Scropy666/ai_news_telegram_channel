@@ -7,6 +7,7 @@ from src.config import settings
 from src.database.models import Poll, PollOption
 from src.database.client import get_db
 from src.generator.prompt_registry import get_prompt
+from src.settings_store import get_post_language, LANGUAGE_LABELS
 
 logger = structlog.get_logger()
 
@@ -21,7 +22,14 @@ POLL_MAX_OPTIONS = 10
 
 async def generate_poll(topic: str, scheduled_at: datetime) -> Poll:
     prompt_template, _ = get_prompt('poll_generator')
-    full_prompt = prompt_template.replace('{{TOPIC}}', topic)
+    lang = get_post_language()
+    lang_label = LANGUAGE_LABELS.get(lang, lang)
+    full_prompt = (
+        prompt_template
+        .replace('{{TOPIC}}', topic)
+        .replace('{{LANGUAGE}}', lang_label)
+    )
+    full_prompt += f'\n\nREMINDER: Write the entire poll (question and all options) in {lang_label} only.'
 
     response = await client.chat.completions.create(
         model=MODEL,
@@ -31,7 +39,7 @@ async def generate_poll(topic: str, scheduled_at: datetime) -> Poll:
     )
 
     raw = response.choices[0].message.content.strip()
-    question, options = _parse_poll_response(raw)
+    question, options = _parse_poll_response(raw, lang)
 
     poll = Poll(
         id=str(uuid4()),
@@ -47,7 +55,13 @@ async def generate_poll(topic: str, scheduled_at: datetime) -> Poll:
     return poll
 
 
-def _parse_poll_response(raw: str) -> tuple[str, list[str]]:
+_FALLBACK_OPTIONS = {
+    'en': ['Yes', 'No', 'Not sure'],
+    'ru': ['Да', 'Нет', 'Не определился'],
+}
+
+
+def _parse_poll_response(raw: str, lang: str = 'en') -> tuple[str, list[str]]:
     lines = [l.strip() for l in raw.splitlines() if l.strip()]
     question = lines[0].lstrip('Q: ').strip()
     options = []
@@ -56,7 +70,7 @@ def _parse_poll_response(raw: str) -> tuple[str, list[str]]:
         if opt and len(options) < POLL_MAX_OPTIONS:
             options.append(opt)
     if len(options) < POLL_MIN_OPTIONS:
-        options = ['Да', 'Нет', 'Не определился']
+        options = _FALLBACK_OPTIONS.get(lang, _FALLBACK_OPTIONS['en'])
     return question, options
 
 
