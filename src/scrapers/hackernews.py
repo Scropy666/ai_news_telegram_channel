@@ -1,4 +1,5 @@
 from datetime import datetime, timezone, timedelta
+from urllib.parse import urlencode, quote
 
 import httpx
 import structlog
@@ -17,11 +18,10 @@ async def fetch(
 ) -> list[RawTweet]:
     min_pts = min_points if min_points is not None else settings.min_engagement_likes
     since_ts = int((datetime.now(timezone.utc) - timedelta(hours=hours)).timestamp())
-    url = (
-        f'https://hn.algolia.com/api/v1/search'
-        f'?query={query}&tags=story&hitsPerPage=15'
-        f'&numericFilters=created_at_i>{since_ts},points>{min_pts}'
-    )
+    params = urlencode({'query': query, 'tags': 'story', 'hitsPerPage': 15})
+    # numericFilters requires literal > — httpx encodes > to %3E which Algolia rejects
+    numeric = quote(f'created_at_i>{since_ts},points>{min_pts}', safe='>,')
+    url = f'https://hn.algolia.com/api/v1/search?{params}&numericFilters={numeric}'
     try:
         async with httpx.AsyncClient(timeout=15) as client:
             r = await client.get(url)
