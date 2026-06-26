@@ -64,4 +64,9 @@ prompts:
     description: "Экспертный комментарий с полезным контекстом"
     status: active
 
+  editor_decision:
+    default_version: "1.0.0"
+    description: "Решение редактора: какие новости публиковать, тип и обоснование"
+    status: active
+
 ab_tests: []
