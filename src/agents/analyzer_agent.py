@@ -14,6 +14,7 @@ from src.database.models import (
 from src.database.client import get_db
 from src.generator.content_generator import generate_post, save_post, get_recent_published_posts
 from src.generator.prompt_registry import get_prompt
+from src.agent_core.heat import compute_heat
 
 logger = structlog.get_logger()
 
@@ -103,6 +104,14 @@ def _filter_and_rank(tweets: list[RawTweet]) -> list[NewsItem]:
         if len(group) > 1:
             score = min(score + 0.1 * (len(group) - 1), 1.0)
         sources = list({t.source for t in group})
+        total_comments = sum(t.retweets for t in group)
+        hb = compute_heat(
+            likes=total_likes,
+            num_comments=total_comments,
+            merged_count=len(group),
+            num_sources=len(sources),
+            created_at_source=best.created_at_source,
+        )
         return NewsItem(
             id=best.id,
             text=best.text,
@@ -113,6 +122,10 @@ def _filter_and_rank(tweets: list[RawTweet]) -> list[NewsItem]:
             relevance_score=score,
             sources=sources,
             merged_count=len(group),
+            num_comments=total_comments,
+            created_at_source=best.created_at_source,
+            heat=hb.total,
+            heat_breakdown=hb.as_dict(),
         )
 
     for group in groups.values():
@@ -125,7 +138,7 @@ def _filter_and_rank(tweets: list[RawTweet]) -> list[NewsItem]:
         if item and (item.relevance_score >= 0.15 or tweet.topic == 'manual'):
             items.append(item)
 
-    items.sort(key=lambda x: x.relevance_score, reverse=True)
+    items.sort(key=lambda x: x.heat, reverse=True)
     logger.info('filter_done', input=len(tweets), output=len(items))
     return items
 
@@ -283,3 +296,109 @@ async def run_multi(
     _mark_tweets_processed([t.id for t in tweets])
     logger.info('analyzer_multi_done', generated=len(generated), rejected=rejected_count)
     return generated
+
+
+# ── Ranked items (no generation) ─────────────────────────────────────────────
+
+def get_ranked_items(
+    source_tweets: list[RawTweet] | None = None,
+    limit: int = MAX_INPUT_ITEMS,
+) -> list[NewsItem]:
+    """Вернуть отфильтрованные и отранжированные по heat NewsItem БЕЗ генерации постов."""
+    tweets = source_tweets if source_tweets is not None else _load_new_tweets(hours=24)
+    if not tweets:
+        return []
+    return _filter_and_rank(tweets)[:limit]
+
+
+def load_new_tweets(hours: int = 24) -> list[RawTweet]:
+    """Публичная обёртка: загрузить необработанные твиты (status='new')."""
+    return _load_new_tweets(hours=hours)
+
+
+def mark_tweets_processed(tweet_ids: list[str]) -> None:
+    """Публичная обёртка: пометить твиты обработанными (status='processed').
+
+    Нужна авто-ветке pipeline: после рассмотрения батча твиты должны
+    помечаться обработанными, иначе они будут переанализироваться каждый прогон.
+    """
+    _mark_tweets_processed(tweet_ids)
+
+
+# ── Run with editor decisions ─────────────────────────────────────────────────
+
+async def run_with_decisions(
+    items: list[NewsItem],
+    decisions: list['EditorDecision'],
+    tags: list[str] | None = None,
+) -> list[tuple[Post, str]]:
+    """Сгенерировать посты по одобренным решениям редактора.
+
+    Генерирует только items с action == 'publish'. Тип поста берётся из decision.post_type.
+    Проверяет уникальность (анти-паттерн: публикация без проверки запрещена).
+    Возвращает пары (Post, reason) для каждого одобренного и уникального поста.
+    """
+    from src.database.models import EditorDecision
+
+    logger.info('run_with_decisions_start', items=len(items), decisions=len(decisions))
+
+    # Индекс items по id для O(1) поиска
+    item_index: dict[str, NewsItem] = {it.id: it for it in items}
+
+    # Отобрать только publish-решения, отсортированные по priority затем по heat
+    publish_decisions = sorted(
+        [d for d in decisions if d.action == 'publish'],
+        key=lambda d: (d.priority, -item_index.get(d.item_id, NewsItem(
+            id='', text='', source_url='', author='', likes=0, topic=''
+        )).heat),
+    )
+
+    if not publish_decisions:
+        logger.info('run_with_decisions_no_publish')
+        return []
+
+    # Контекст уникальности: опубликованные + сгенерированные в этом батче
+    published = get_recent_published_posts(limit=settings.uniqueness_recent_posts)
+    results: list[tuple[Post, str]] = []
+    rejected_count = 0
+
+    for decision in publish_decisions:
+        item = item_index.get(decision.item_id)
+        if item is None:
+            logger.warning('run_with_decisions_item_not_found', item_id=decision.item_id)
+            continue
+
+        try:
+            post = await generate_post(
+                [item],
+                post_type=decision.post_type,
+                scheduled_at=datetime.now(timezone.utc),
+                tags=tags,
+            )
+        except Exception as e:
+            logger.warning('run_with_decisions_generate_failed',
+                           item_id=decision.item_id, post_type=decision.post_type, error=str(e))
+            continue
+
+        # Проверяем уникальность: vs опубликованных + vs уже сгенерированных в батче
+        context = published + [p.content for p, _ in results]
+        uniqueness = await _check_uniqueness(post.content, context)
+
+        logger.info(
+            'run_with_decisions_uniqueness',
+            item_id=decision.item_id,
+            post_type=decision.post_type,
+            is_unique=uniqueness.is_unique,
+            confidence=uniqueness.confidence,
+            reason=uniqueness.reason,
+        )
+
+        if uniqueness.is_unique:
+            results.append((post, decision.reason))
+        else:
+            rejected_count += 1
+            logger.info('run_with_decisions_rejected_duplicate',
+                        item_id=decision.item_id, reason=uniqueness.reason)
+
+    logger.info('run_with_decisions_done', generated=len(results), rejected=rejected_count)
+    return results

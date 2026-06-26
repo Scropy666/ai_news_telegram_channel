@@ -32,6 +32,8 @@ async def fetch(
         for h in hits:
             story_id = str(h.get('objectID', ''))
             url_val = h.get('url') or f'https://news.ycombinator.com/item?id={story_id}'
+            created_i = h.get('created_at_i')
+            created_dt = datetime.fromtimestamp(created_i, tz=timezone.utc) if created_i else None
             tweets.append(RawTweet(
                 id=f'hn_{story_id}',
                 text=h.get('title', ''),
@@ -43,6 +45,7 @@ async def fetch(
                 topic=topic,
                 status='new',
                 source='hackernews',
+                created_at_source=created_dt,
             ))
         logger.info('hn_fetched', query=query, found=len(tweets))
         return tweets

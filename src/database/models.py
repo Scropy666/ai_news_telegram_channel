@@ -6,6 +6,11 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 
+# ── Editor Agent models ───────────────────────────────────────────────────────
+
+EditorAction = Literal['publish', 'hold', 'reject']
+
+
 # ── Enums ────────────────────────────────────────────────────────────────────
 
 PostType = Literal['news_digest', 'deep_dive', 'tool_spotlight', 'opinion']
@@ -31,6 +36,7 @@ class RawTweet(BaseModel):
     status: RawTweetStatus = 'new'
     source: SourceType = 'hackernews'
     merge_group_id: str | None = None
+    created_at_source: datetime | None = None  # когда новость вышла в источнике (для расчёта возраста/velocity)
 
 
 class NewsItem(BaseModel):
@@ -43,6 +49,10 @@ class NewsItem(BaseModel):
     relevance_score: float = 0.0
     sources: list[SourceType] = Field(default_factory=list)
     merged_count: int = 1
+    num_comments: int = 0                       # активность обсуждения
+    created_at_source: datetime | None = None   # возраст новости
+    heat: float = 0.0                           # итоговый heat-score (заполняет Фаза 1)
+    heat_breakdown: dict = Field(default_factory=dict)  # компоненты heat для прозрачности (показываем в review)
 
 
 class Post(BaseModel):
@@ -127,6 +137,14 @@ class PublisherResult(BaseModel):
     success: bool
     published_at: datetime | None = None
     error: str | None = None
+
+
+class EditorDecision(BaseModel):
+    item_id: str                 # = NewsItem.id
+    action: EditorAction
+    post_type: PostType          # какой формат поста выбрал агент
+    priority: int = 0            # порядок (меньше = важнее)
+    reason: str = ''             # обоснование для человека (показываем в review)
 
 
 # ── Tester models ─────────────────────────────────────────────────────────────
