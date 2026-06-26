@@ -1,5 +1,5 @@
 import structlog
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from telegram import InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.error import TelegramError
 
@@ -8,6 +8,7 @@ from src.database.models import Post
 from src.scheduler.scheduler import TYPE_LABELS
 from src.utils import get_bot
 from src.generator.image_generator import fetch_image_bytes, make_seed
+from src.agent_core.goals import guardrail
 
 logger = structlog.get_logger()
 
@@ -32,31 +33,39 @@ async def notify_admin(message: str) -> None:
 
 
 def build_post_keyboard(post_id: str) -> InlineKeyboardMarkup:
-    """Клавиатура с вариантами публикации для одного поста."""
-    rows = []
-    # Варианты публикации по времени (по 2 в ряд)
-    publish_row = []
-    for code, label, _ in PUBLISH_OPTIONS:
-        publish_row.append(InlineKeyboardButton(label, callback_data=f'{code}_{post_id}'))
-        if len(publish_row) == 2:
-            rows.append(publish_row)
-            publish_row = []
-    if publish_row:
-        rows.append(publish_row)
-    # Сохранить / Отклонить
-    rows.append([
-        InlineKeyboardButton('💾 Сохранить', callback_data=f'sv_{post_id}'),
-        InlineKeyboardButton('🗑 Отклонить',  callback_data=f'rj_{post_id}'),
+    """Suggest-раскладка: одобрить/вето + через час/в черновики.
+
+    Переиспользует существующие callback-коды (pn/rj/p1h/sv), обрабатываемые
+    callback_post_action в main.py. Менять main.py не требуется.
+    """
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton('✅ Опубликовать', callback_data=f'pn_{post_id}'),
+            InlineKeyboardButton('🚫 Вето',         callback_data=f'rj_{post_id}'),
+        ],
+        [
+            InlineKeyboardButton('⏱ Через час',    callback_data=f'p1h_{post_id}'),
+            InlineKeyboardButton('💾 В черновики',  callback_data=f'sv_{post_id}'),
+        ],
     ])
-    return InlineKeyboardMarkup(rows)
 
 
-async def send_post_for_review(post: Post, index: int, total: int, drafts: dict) -> None:
-    """Отправить один пост на review с клавиатурой выбора. Сохранить в drafts."""
+async def send_post_for_review(
+    post: Post,
+    index: int,
+    total: int,
+    drafts: dict,
+    reason: str = '',
+) -> None:
+    """Отправить один пост на review с клавиатурой выбора. Сохранить в drafts.
+
+    reason: обоснование редактора (отображается блоком «🧠 Редактор: …»).
+    """
     drafts[post.id] = post
 
     label = TYPE_LABELS.get(post.type, post.type)
-    header = f'📝 Пост {index}/{total} — {label}\n\n'
+    reason_block = f'🧠 Редактор: {reason}\n\n' if reason else ''
+    header = f'📝 Пост {index}/{total} — {label}\n{reason_block}'
     bot = get_bot()
     keyboard = build_post_keyboard(post.id)
 
@@ -100,6 +109,26 @@ async def send_post_for_review(post: Post, index: int, total: int, drafts: dict)
 
 # ── Pipeline ──────────────────────────────────────────────────────────────────
 
+def _count_posts_last_24h() -> int:
+    """Посчитать посты, опубликованные или поставленные в очередь за последние 24 часа.
+
+    Используется для guardrail max_posts_per_day.
+    Считаем по scheduled_at (включает waiting_publish) и published_at (published).
+    """
+    from src.database.client import get_db
+    db = get_db()
+    since = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+    rows = (
+        db.table('posts')
+        .select('id')
+        .in_('status', ['published', 'waiting_publish', 'pending'])
+        .gte('scheduled_at', since)
+        .execute()
+        .data
+    )
+    return len(rows)
+
+
 async def run_pipeline(
     post_type: str,
     drafts: dict | None = None,
@@ -107,46 +136,98 @@ async def run_pipeline(
 ) -> None:
     """Scrape → generate batch → отправить все посты на review.
 
-    tags: если указаны — скрапим только по этим тегам, иначе по topics.json.
+    Авто-ветка (tags не заданы): использует Editor Agent для принятия решений.
+    Ручная ветка (tags заданы): классический run_multi, Editor не вмешивается.
     """
-    from src.agents.scraper_agent import run as scraper_run, scrape_by_tags, _save_tweets
-    from src.agents.analyzer_agent import run_multi
+    from src.agents.scraper_agent import run as scraper_run, scrape_by_tags
+    from src.agents.analyzer_agent import (
+        run_multi, get_ranked_items, run_with_decisions,
+        load_new_tweets, mark_tweets_processed,
+    )
+    from src.agents.editor_agent import decide
 
     if drafts is None:
         drafts = {}
 
     logger.info('pipeline_start', post_type=post_type, tags=tags)
 
-    source_tweets = None  # None = analyzer загрузит из БД сам
-
     if tags:
+        # ── Ручная ветка: теги заданы пользователем, Editor не нужен ─────────
         raw_tweets = await scrape_by_tags(tags)
         if not raw_tweets:
             await notify_admin(f'📭 По тегам {", ".join(tags)} ничего не найдено.')
             return
-        source_tweets = raw_tweets  # передаём напрямую, минуя DB-запрос
         logger.info('pipeline_scraped_by_tags', tags=tags, found=len(raw_tweets))
-    else:
-        scraper_result = await scraper_run()
-        logger.info('pipeline_scraped', new_saved=scraper_result.new_saved)
-        if scraper_result.errors:
-            await notify_admin(f'⚠️ Scraper warnings: {", ".join(scraper_result.errors[:2])}')
 
-    posts = await run_multi(source_tweets=source_tweets, post_type=post_type, tags=tags)
+        posts = await run_multi(source_tweets=raw_tweets, post_type=post_type, tags=tags)
 
-    if not posts:
+        if not posts:
+            await notify_admin(
+                '📭 Не удалось сгенерировать ни одного уникального поста.\n'
+                'Все темы уже были освещены или нет новых данных.'
+            )
+            return
+
+        await notify_admin(f'✅ Сгенерировано {len(posts)} постов. Выбери действие для каждого 👇')
+        for i, post in enumerate(posts, 1):
+            await send_post_for_review(post, index=i, total=len(posts), drafts=drafts)
+
+        logger.info('pipeline_done', posts_sent=len(posts))
+        return
+
+    # ── Авто-ветка: Editor Agent принимает решения ────────────────────────────
+    scraper_result = await scraper_run()
+    logger.info('pipeline_scraped', new_saved=scraper_result.new_saved)
+    if scraper_result.errors:
+        await notify_admin(f'⚠️ Scraper warnings: {", ".join(scraper_result.errors[:2])}')
+
+    new_tweets = load_new_tweets()
+    items = get_ranked_items(source_tweets=new_tweets)
+    if not items:
+        await notify_admin('📭 Нет новых новостей для анализа.')
+        return
+
+    decisions = await decide(items)               # ИИ-редактор принимает решение
+    pairs = await run_with_decisions(items, decisions)   # генерим только одобренные
+
+    # Помечаем рассмотренный батч обработанным независимо от исхода —
+    # иначе те же твиты будут переанализироваться каждый прогон (как в run_multi).
+    mark_tweets_processed([t.id for t in new_tweets])
+
+    if not pairs:
+        await notify_admin('📭 Редактор не одобрил ни одной темы к публикации.')
+        return
+
+    # Guardrail max_posts_per_day: проверяем сколько уже отправлено за 24ч
+    max_per_day: int = guardrail('max_posts_per_day', 8)
+    already_today = _count_posts_last_24h()
+    remaining_slots = max(max_per_day - already_today, 0)
+
+    logger.info(
+        'pipeline_day_guardrail',
+        max_per_day=max_per_day,
+        already_today=already_today,
+        remaining_slots=remaining_slots,
+        candidate_pairs=len(pairs),
+    )
+
+    if remaining_slots == 0:
         await notify_admin(
-            '📭 Не удалось сгенерировать ни одного уникального поста.\n'
-            'Все темы уже были освещены или нет новых данных.'
+            f'🛑 Лимит публикаций за 24ч достигнут ({already_today}/{max_per_day}). '
+            f'Редактор одобрил {len(pairs)} тем, но они пропущены.'
         )
         return
 
-    await notify_admin(f'✅ Сгенерировано {len(posts)} постов. Выбери действие для каждого 👇')
+    pairs_to_send = pairs[:remaining_slots]
+    if len(pairs) > remaining_slots:
+        logger.info('pipeline_day_guardrail_trimmed',
+                    trimmed=len(pairs) - remaining_slots, sent=remaining_slots)
 
-    for i, post in enumerate(posts, 1):
-        await send_post_for_review(post, index=i, total=len(posts), drafts=drafts)
+    await notify_admin(f'🧠 Редактор одобрил {len(pairs_to_send)} тем. Проверь решения 👇')
+    for i, (post, reason) in enumerate(pairs_to_send, 1):
+        await send_post_for_review(post, index=i, total=len(pairs_to_send), drafts=drafts, reason=reason)
 
-    logger.info('pipeline_done', posts_sent=len(posts))
+    logger.info('pipeline_done', posts_sent=len(pairs_to_send))
 
 
 async def run_poll_pipeline(topic: str) -> None:
