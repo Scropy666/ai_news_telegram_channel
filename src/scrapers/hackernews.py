@@ -1,5 +1,4 @@
 from datetime import datetime, timezone, timedelta
-from urllib.parse import urlencode, quote
 
 import httpx
 import structlog
@@ -18,13 +17,19 @@ async def fetch(
 ) -> list[RawTweet]:
     min_pts = min_points if min_points is not None else settings.min_engagement_likes
     since_ts = int((datetime.now(timezone.utc) - timedelta(hours=hours)).timestamp())
-    params = urlencode({'query': query, 'tags': 'story', 'hitsPerPage': 15})
-    # numericFilters requires literal > — httpx encodes > to %3E which Algolia rejects
-    numeric = quote(f'created_at_i>{since_ts},points>{min_pts}', safe='>,')
-    url = f'https://hn.algolia.com/api/v1/search?{params}&numericFilters={numeric}'
+    # Algolia HN API requires the ARRAY form of numericFilters (each filter a
+    # separate repeated param). The comma-joined string form is rejected with
+    # 400 — verified against the live API. Passing a list lets httpx encode it
+    # correctly as numericFilters=...&numericFilters=...
+    params = {
+        'query': query,
+        'tags': 'story',
+        'hitsPerPage': 15,
+        'numericFilters': [f'created_at_i>{since_ts}', f'points>{min_pts}'],
+    }
     try:
         async with httpx.AsyncClient(timeout=15) as client:
-            r = await client.get(url)
+            r = await client.get('https://hn.algolia.com/api/v1/search', params=params)
             r.raise_for_status()
             hits = r.json().get('hits', [])
 
