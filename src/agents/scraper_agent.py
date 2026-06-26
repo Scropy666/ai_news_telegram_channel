@@ -28,14 +28,47 @@ DEFAULT_QUERIES = [
 ]
 
 
-def load_topics() -> list[dict]:
+def _seed_topics_from_file() -> list[dict]:
+    """Источник для первичного заполнения таблицы topics, когда она пуста:
+    существующий topics.json (сохраняет текущие теги) или DEFAULT_QUERIES."""
     if TOPICS_FILE.exists():
-        entries = json.load(open(TOPICS_FILE, 'r', encoding='utf-8')).get('queries', DEFAULT_QUERIES)
-        # backward compat: добавляем sources если нет
+        entries = json.load(open(TOPICS_FILE, 'r', encoding='utf-8')).get('queries', [])
         for e in entries:
             e.setdefault('sources', ['hackernews'])
-        return entries
+        return entries or DEFAULT_QUERIES
     return DEFAULT_QUERIES
+
+
+def _insert_topics(entries: list[dict]) -> None:
+    if not entries:
+        return
+    rows = [
+        {'query': e['query'], 'topic': e['topic'], 'sources': e.get('sources', ['hackernews'])}
+        for e in entries
+    ]
+    get_db().table('topics').insert(rows).execute()
+
+
+def load_topics() -> list[dict]:
+    """Загрузить теги из Supabase. При первом запуске (пустая таблица) —
+    seed из topics.json/DEFAULT_QUERIES. Хранение в БД нужно, чтобы теги,
+    добавленные через /add_topic, переживали редеплои Railway (эфемерная ФС).
+
+    Если таблицы topics ещё нет (DDL не выполнен) — graceful fallback на файл,
+    чтобы деплой не зависел от порядка «создать таблицу / задеплоить код»."""
+    db = get_db()
+    try:
+        rows = db.table('topics').select('query, topic, sources').order('id').execute().data
+        if not rows:
+            _insert_topics(_seed_topics_from_file())
+            rows = db.table('topics').select('query, topic, sources').order('id').execute().data
+    except Exception as e:
+        logger.warning('topics_table_unavailable_fallback_file', error=str(e))
+        return _seed_topics_from_file()
+    return [
+        {'query': r['query'], 'topic': r['topic'], 'sources': r.get('sources') or ['hackernews']}
+        for r in rows
+    ]
 
 
 def _load_sources_config() -> dict:
@@ -45,29 +78,35 @@ def _load_sources_config() -> dict:
 
 
 def save_topics(queries: list[dict]) -> None:
-    with open(TOPICS_FILE, 'w', encoding='utf-8') as f:
-        json.dump({'queries': queries}, f, ensure_ascii=False, indent=2)
+    """Заменить все теги переданным списком (snapshot-restore — используется
+    тестами для восстановления состояния). id != 0 = все строки таблицы."""
+    db = get_db()
+    db.table('topics').delete().neq('id', 0).execute()
+    _insert_topics(queries)
 
 
 def add_topic(query: str) -> dict | None:
     """Добавить тег. Возвращает None если тег уже существует."""
-    queries = load_topics()
     query_lower = query.lower().strip()
-    if any(q['query'].lower().strip() == query_lower for q in queries):
+    if any(q['query'].lower().strip() == query_lower for q in load_topics()):
         return None
     topic_key = re.sub(r'[^a-z0-9]+', '_', query_lower).strip('_')
     entry = {'query': query, 'topic': topic_key, 'sources': ['hackernews']}
-    queries.append(entry)
-    save_topics(queries)
+    try:
+        get_db().table('topics').insert(entry).execute()
+    except Exception as e:
+        logger.warning('add_topic_insert_failed', query=query, error=str(e))
+        return None
     return entry
 
 
 def remove_topic(index: int) -> bool:
-    queries = load_topics()
-    if index < 1 or index > len(queries):
+    db = get_db()
+    rows = db.table('topics').select('id').order('id').execute().data
+    if index < 1 or index > len(rows):
         return False
-    queries.pop(index - 1)
-    save_topics(queries)
+    target_id = rows[index - 1]['id']
+    db.table('topics').delete().eq('id', target_id).execute()
     return True
 
 
