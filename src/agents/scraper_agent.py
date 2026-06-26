@@ -91,6 +91,8 @@ def _save_tweets(tweets: list[RawTweet]) -> int:
         seen.add(t.id)
         row = t.model_dump()
         row['scraped_at'] = row['scraped_at'].isoformat()
+        if row.get('created_at_source'):
+            row['created_at_source'] = row['created_at_source'].isoformat()
         rows.append(row)
     db.table('raw_tweets').upsert(rows, on_conflict='id').execute()
     return len(rows)

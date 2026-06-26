@@ -303,16 +303,16 @@ async def _test_cancel_post() -> TestResult:
 # ── Coordinator ───────────────────────────────────────────────────────────────
 
 async def _test_build_keyboard() -> TestResult:
-    """Клавиатура содержит все 7 кнопок (pn p30 p1h p4h p8h sv rj)."""
+    """Suggest-раскладка (Phase 3): 4 кнопки — публикация/вето/через час/черновики (pn rj p1h sv)."""
     from src.agents.coordinator import build_post_keyboard
     try:
         kb = build_post_keyboard('test-post-id')
         buttons = [btn for row in kb.inline_keyboard for btn in row]
         codes = [b.callback_data.split('_')[0] for b in buttons]
-        expected = {'pn', 'p30', 'p1h', 'p4h', 'p8h', 'sv', 'rj'}
+        expected = {'pn', 'rj', 'p1h', 'sv'}
         missing = expected - set(codes)
         assert not missing, f'Отсутствуют кнопки: {missing}'
-        assert len(buttons) == 7, f'Ожидали 7 кнопок, нашли {len(buttons)}'
+        assert len(buttons) == 4, f'Ожидали 4 кнопки, нашли {len(buttons)}'
         return TestResult(name='build_keyboard', passed=True, command='internal:build_post_keyboard',
                           response=f'Клавиатура: {len(buttons)} кнопок — {sorted(codes)}')
     except Exception as e:
