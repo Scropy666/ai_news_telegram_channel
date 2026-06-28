@@ -1,7 +1,7 @@
 {
   "objective": "Публиковать самые актуальные и виральные новости об ИИ. Критерии: свежесть, важность, обсуждаемость.",
   "autonomy_mode": "suggest",
-  "orchestration": "pipeline",
+  "orchestration": "agent_loop",
   "guardrails": {
     "max_posts_per_run": 5,
     "max_posts_per_day": 8,
