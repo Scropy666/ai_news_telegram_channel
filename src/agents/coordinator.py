@@ -8,7 +8,7 @@ from src.database.models import Post
 from src.scheduler.scheduler import TYPE_LABELS
 from src.utils import get_bot
 from src.generator.image_generator import fetch_image_bytes, make_seed
-from src.agent_core.goals import guardrail
+from src.agent_core.goals import guardrail, goal
 
 logger = structlog.get_logger()
 
@@ -176,6 +176,10 @@ async def run_pipeline(
         return
 
     # ── Авто-ветка: Editor Agent принимает решения ────────────────────────────
+    if goal('orchestration', 'pipeline') == 'agent_loop':
+        await _run_agent_loop_branch(drafts)
+        return
+
     scraper_result = await scraper_run()
     logger.info('pipeline_scraped', new_saved=scraper_result.new_saved)
     if scraper_result.errors:
@@ -228,6 +232,48 @@ async def run_pipeline(
         await send_post_for_review(post, index=i, total=len(pairs_to_send), drafts=drafts, reason=reason)
 
     logger.info('pipeline_done', posts_sent=len(pairs_to_send))
+
+
+async def _run_agent_loop_branch(drafts: dict) -> None:
+    """Авто-ветка Phase 4: агентный цикл вместо Editor Agent.
+
+    Запускается когда agent_goals.json → orchestration == 'agent_loop'.
+    Использует AgentContext + run_agent_cycle для автономного выбора тем.
+    """
+    from src.agents.scraper_agent import run as scraper_run
+    from src.agents.analyzer_agent import mark_tweets_processed, load_new_tweets
+    from src.generator.content_generator import get_recent_published_posts
+    from src.agent_core.tools import AgentContext
+    from src.agent_core.loop import run_agent_cycle
+    from src.config import settings
+
+    scraper_result = await scraper_run()
+    logger.info('agent_loop_scraped', new_saved=scraper_result.new_saved)
+
+    max_per_day = guardrail('max_posts_per_day', 8)
+    already = _count_posts_last_24h()
+    remaining = max(max_per_day - already, 0)
+    if remaining == 0:
+        await notify_admin(f'🛑 Лимит публикаций за 24ч достигнут ({already}/{max_per_day}).')
+        return
+
+    ctx = AgentContext(
+        published_context=get_recent_published_posts(limit=settings.uniqueness_recent_posts),
+        remaining_day_slots=remaining,
+        max_per_run=guardrail('max_posts_per_run', 5),
+    )
+    new_tweets = load_new_tweets()
+    await run_agent_cycle(ctx)
+    # Батч обработан — помечаем, чтобы не переанализировать
+    mark_tweets_processed([t.id for t in new_tweets])
+
+    if not ctx.to_review:
+        await notify_admin('📭 Агент не выбрал ни одной темы к публикации.')
+        return
+    await notify_admin(f'🧠 Агент предложил {len(ctx.to_review)} тем. Проверь решения 👇')
+    for i, (post, reason) in enumerate(ctx.to_review, 1):
+        await send_post_for_review(post, index=i, total=len(ctx.to_review), drafts=drafts, reason=reason)
+    logger.info('agent_loop_done', posts_sent=len(ctx.to_review))
 
 
 async def run_poll_pipeline(topic: str) -> None:

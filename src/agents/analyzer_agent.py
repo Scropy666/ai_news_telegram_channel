@@ -325,6 +325,25 @@ def mark_tweets_processed(tweet_ids: list[str]) -> None:
     _mark_tweets_processed(tweet_ids)
 
 
+async def generate_and_check(
+    item: NewsItem,
+    post_type: PostType,
+    context_contents: list[str],
+    tags: list[str] | None = None,
+) -> tuple[Post | None, UniquenessResult]:
+    """Сгенерировать пост для одного NewsItem и проверить уникальность против context_contents.
+    Возвращает (Post|None, UniquenessResult). Post=None при ошибке генерации.
+    Публичная обёртка для tool-calling цикла (Фаза 4), переиспользует generate_post + _check_uniqueness."""
+    from datetime import datetime, timezone
+    try:
+        post = await generate_post([item], post_type=post_type, scheduled_at=datetime.now(timezone.utc), tags=tags)
+    except Exception as e:
+        logger.warning('generate_and_check_failed', item_id=item.id, post_type=post_type, error=str(e))
+        return None, UniquenessResult(is_unique=False, confidence=0.0, reason=f'generate failed: {e}')
+    uniqueness = await _check_uniqueness(post.content, context_contents)
+    return post, uniqueness
+
+
 # ── Run with editor decisions ─────────────────────────────────────────────────
 
 async def run_with_decisions(

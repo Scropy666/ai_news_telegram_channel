@@ -69,4 +69,9 @@ prompts:
     description: "Решение редактора: какие новости публиковать, тип и обоснование"
     status: active
 
+  agent_system:
+    default_version: "1.0.0"
+    description: "Системный промпт OODA-цикла автономного агента (Фаза 4)"
+    status: active
+
 ab_tests: []

@@ -12,3 +12,7 @@ def load_goals() -> dict:
 
 def guardrail(key: str, default=None):
     return load_goals().get('guardrails', {}).get(key, default)
+
+
+def goal(key: str, default=None):
+    return load_goals().get(key, default)
