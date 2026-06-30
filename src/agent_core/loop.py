@@ -79,6 +79,10 @@ async def run_agent_cycle(ctx: AgentContext, max_steps: int = 8) -> None:
                         args = json.loads(tc.function.arguments or '{}')
                     except Exception:
                         args = {}
+                    # Groq может вернуть arguments='null' (→ None) для беспараметровых
+                    # тулов; гарантируем dict, иначе args.get(...) в dispatch упадёт.
+                    if not isinstance(args, dict):
+                        args = {}
 
                     result = await dispatch(tc.function.name, args, ctx)
 
